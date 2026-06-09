@@ -1,0 +1,29 @@
+{
+  "name": "ai-agent-swarm",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -n backend,dashboard -c cyan,magenta \"npm run dev --workspace=apps/backend\" \"npm run dev --workspace=apps/dashboard\"",
+    "db:setup": "node --env-file=.env db/setup.mjs",
+    "db:seed":  "node --env-file=.env db/seed.mjs",
+    "db:reset": "node --env-file=.env db/reset.mjs",
+    "db:migrate": "node --env-file=.env db/migrate.mjs",
+    "telegram:chat-id": "node --env-file=.env scripts/telegram-chat-id.mjs",
+    "db:backup": "node --env-file=.env db/backup.mjs",
+    "knowledge:ingest": "node --env-file=.env scripts/knowledge-ingest.mjs",
+    "api":         "node --env-file=.env scripts/api.mjs",
+    "tests:seed":  "node --env-file=.env scripts/tests-seed.mjs",
+    "tests:batch": "node --env-file=.env scripts/tests-batch.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "pg": "^8.13.0"
+  }
+}

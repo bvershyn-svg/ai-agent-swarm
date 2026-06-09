@@ -1,0 +1,9 @@
+{
+  "name": "@swarm/shared",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
