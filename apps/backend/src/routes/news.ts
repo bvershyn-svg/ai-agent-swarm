@@ -1,8 +1,8 @@
-// Новостная фабрика: пакеты новостей и запуск прогонов
+// Новостная фабрика: пакеты новостей, источники, RSS и запуск прогонов
 import { Router, Request, Response, NextFunction } from 'express';
 import { pool } from '../db';
 import { planRun } from '../agents/orchestrator';
-import type { NewsPackage, NewsItem, Run } from '@swarm/shared';
+import type { NewsPackage, NewsItem, NewsSource, RssArticle, Run } from '@swarm/shared';
 
 export const newsRouter = Router();
 
@@ -286,4 +286,135 @@ ${itemsSections}
 Не выдавать заявления одной стороны как подтверждённый факт. Если информация спорная — писать «по данным…», «заявил…», «независимого подтверждения пока нет».
 
 Финальный результат разделить на блоки по каждой новости. В конце выбрать самую сильную тему для короткого видео и объяснить почему.`;
+}
+
+// ── Управление источниками новостей ──────────────────────────────────────────
+
+// GET /api/news/sources
+newsRouter.get('/sources', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { rows } = await pool.query<NewsSource>(
+      `SELECT * FROM news_sources
+       WHERE ($1::int IS NULL OR project_id = $1)
+       ORDER BY enabled DESC, name ASC`,
+      [req.projectId ?? null],
+    );
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+// POST /api/news/sources
+newsRouter.post('/sources', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {
+      name = '', url = '', source_type = 'rss',
+      language = 'ru', category = 'general', reliability = 'medium',
+    } = req.body as Partial<NewsSource>;
+
+    if (!url.trim()) { res.status(400).json({ error: 'Поле url обязательно' }); return; }
+
+    const { rows } = await pool.query<NewsSource>(
+      `INSERT INTO news_sources (project_id, name, url, source_type, language, category, reliability)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [req.projectId ?? null, name, url.trim(), source_type, language, category, reliability],
+    );
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/news/sources/:id
+newsRouter.patch('/sources/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) { res.status(400).json({ error: 'Неверный ID' }); return; }
+
+    const { name, url, source_type, language, category, reliability, enabled } = req.body as Partial<NewsSource>;
+    const sets: string[] = ['updated_at = NOW()'];
+    const vals: unknown[] = [id];
+    let i = 2;
+    if (name !== undefined)        { sets.push(`name = $${i++}`);        vals.push(name); }
+    if (url !== undefined)         { sets.push(`url = $${i++}`);         vals.push(url); }
+    if (source_type !== undefined) { sets.push(`source_type = $${i++}`); vals.push(source_type); }
+    if (language !== undefined)    { sets.push(`language = $${i++}`);    vals.push(language); }
+    if (category !== undefined)    { sets.push(`category = $${i++}`);    vals.push(category); }
+    if (reliability !== undefined) { sets.push(`reliability = $${i++}`); vals.push(reliability); }
+    if (enabled !== undefined)     { sets.push(`enabled = $${i++}`);     vals.push(enabled); }
+
+    const { rows } = await pool.query<NewsSource>(
+      `UPDATE news_sources SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+      vals,
+    );
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/news/sources/:id
+newsRouter.delete('/sources/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) { res.status(400).json({ error: 'Неверный ID' }); return; }
+    await pool.query('DELETE FROM news_sources WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// POST /api/news/fetch-rss — получить статьи из RSS-ленты
+newsRouter.post('/fetch-rss', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { url, source_name = '' } = req.body as { url?: string; source_name?: string };
+    if (!url?.trim()) { res.status(400).json({ error: 'Поле url обязательно' }); return; }
+
+    const articles = await fetchRssArticles(url.trim(), source_name);
+    res.json(articles);
+  } catch (e) { next(e); }
+});
+
+// ── RSS парсер (без внешних зависимостей) ────────────────────────────────────
+
+async function fetchRssArticles(url: string, sourceName: string): Promise<RssArticle[]> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(15_000),
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SwarmNewsBot/1.0)', Accept: 'application/rss+xml,application/xml,text/xml,*/*' },
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+  const xml = await response.text();
+  return parseRssXml(xml, sourceName);
+}
+
+function extractTag(xml: string, tag: string): string {
+  // Поддержка CDATA и обычного текста
+  const re = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, 'i');
+  const m = re.exec(xml);
+  if (!m) return '';
+  return m[1].trim()
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, '') // убираем HTML внутри description
+    .trim();
+}
+
+function parseRssXml(xml: string, sourceName: string): RssArticle[] {
+  const articles: RssArticle[] = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/gi;
+  let match;
+
+  while ((match = itemRe.exec(xml)) !== null) {
+    const chunk = match[1];
+    const title = extractTag(chunk, 'title');
+    const link = extractTag(chunk, 'link') || extractTag(chunk, 'guid');
+    const description = extractTag(chunk, 'description').substring(0, 500);
+    const pub_date = extractTag(chunk, 'pubDate') || extractTag(chunk, 'dc:date') || '';
+
+    if (title || link) {
+      articles.push({ title, link, description, pub_date, source_name: sourceName });
+    }
+  }
+
+  return articles.slice(0, 30); // максимум 30 статей
 }

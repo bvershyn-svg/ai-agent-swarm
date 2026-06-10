@@ -3,7 +3,7 @@ import type {
   Run, Task, SwarmEvent, ActivityLog,
   Project, ProjectProfile, ContentDraft, ContentPlanItem,
   IdeaInboxItem, KnowledgeSource, TestScenario, TestRun,
-  NewsPackage, NewsItem,
+  NewsPackage, NewsItem, NewsSource, RssArticle,
 } from '@swarm/shared';
 
 const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
@@ -363,6 +363,39 @@ export async function deleteNewsPackage(id: number): Promise<void> {
 
 export async function createRunFromNewsPackage(id: number): Promise<Run> {
   return apiFetch(`/api/news/packages/${id}/create-run`, { method: 'POST' });
+}
+
+// Источники новостей
+export async function getNewsSources(): Promise<NewsSource[]> {
+  return apiFetch('/api/news/sources');
+}
+
+export async function createNewsSource(data: Partial<NewsSource>): Promise<NewsSource> {
+  return apiFetch('/api/news/sources', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateNewsSource(id: number, data: Partial<NewsSource>): Promise<NewsSource> {
+  return apiFetch(`/api/news/sources/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteNewsSource(id: number): Promise<void> {
+  await apiFetch(`/api/news/sources/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchRssArticles(url: string, sourceName?: string): Promise<RssArticle[]> {
+  return apiFetch('/api/news/fetch-rss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, source_name: sourceName ?? '' }),
+  });
 }
 
 // ── Тесты ─────────────────────────────────────────────────────────────────

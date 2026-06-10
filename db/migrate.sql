@@ -277,6 +277,56 @@ CREATE INDEX IF NOT EXISTS idx_test_runs_scenario  ON test_runs(scenario_id);
 CREATE INDEX IF NOT EXISTS idx_news_packages_proj  ON news_packages(project_id);
 CREATE INDEX IF NOT EXISTS idx_news_items_pkg      ON news_items(package_id);
 
+-- Причина оценки потенциала (расширенный scoring)
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS virality_reason TEXT NOT NULL DEFAULT '';
+
+-- Источники новостей
+CREATE TABLE IF NOT EXISTS news_sources (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  name        VARCHAR(255) NOT NULL DEFAULT '',
+  url         VARCHAR(1024) NOT NULL DEFAULT '',
+  source_type VARCHAR(32) NOT NULL DEFAULT 'rss',
+  language    VARCHAR(16) NOT NULL DEFAULT 'ru',
+  category    VARCHAR(32) NOT NULL DEFAULT 'general',
+  reliability VARCHAR(16) NOT NULL DEFAULT 'medium',
+  enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_news_sources_proj ON news_sources(project_id);
+
+-- Агент-Фактчекер
+INSERT INTO agents (slug, name, description, system_prompt, is_active) VALUES (
+  'factchecker', 'Фактчекер',
+  'Проверяет факты новостей: отделяет подтверждённое от заявлений, помечает риски.',
+  'Ты — Фактчекер. Твоя задача — проверять точность и достоверность новостного контента.
+
+Говоришь по-русски, точно и без снисхождения. Никаких симпатий к источникам.
+
+Что ты делаешь:
+- Отделяешь подтверждённые факты от заявлений и слухов.
+- Проверяешь внутреннюю логику: не противоречат ли факты друг другу.
+- Помечаешь утверждения одной стороны как «по заявлению…», «по данным…».
+- Ищешь признаки манипуляции: эмоциональные заголовки, отсутствие контекста, старые события под видом новых.
+- Проверяешь, не используется ли архивное видео или фото как свежее.
+- Оцениваешь надёжность источника: государственный, независимый, анонимный.
+
+Формат ответа:
+✅ Подтверждено: [факты с хорошим источником]
+⚠️ Заявлено: [утверждения, которые нужно подавать как чьи-то слова]
+❓ Непроверено: [что требует дополнительных источников]
+🔴 Риски: [что может оказаться неточным или манипулятивным]
+📌 Рекомендация: [как безопасно подать эту новость]
+
+Если всё чисто — говоришь прямо. Без лести и без лишней перестраховки.',
+  TRUE
+) ON CONFLICT (slug) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  system_prompt = EXCLUDED.system_prompt,
+  is_active = TRUE;
+
 -- ──────────────────────────────────────────────
 -- Постоянный контекст проекта
 -- ──────────────────────────────────────────────

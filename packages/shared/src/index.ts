@@ -248,9 +248,35 @@ export interface NewsItem {
   terms: string[];
   verification_status: NewsVerificationStatus;
   virality_score: number;
+  virality_reason: string;
   risks: string;
   created_at: string;
   updated_at: string;
+}
+
+export type NewsSourceType = 'rss' | 'telegram' | 'website' | 'youtube' | 'other';
+export type NewsSourceReliability = 'high' | 'medium' | 'low';
+
+export interface NewsSource {
+  id: number;
+  project_id: number | null;
+  name: string;
+  url: string;
+  source_type: NewsSourceType;
+  language: string;
+  category: string;
+  reliability: NewsSourceReliability;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RssArticle {
+  title: string;
+  link: string;
+  description: string;
+  pub_date: string;
+  source_name: string;
 }
 
 export interface NewsPackage {
