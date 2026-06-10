@@ -37,8 +37,15 @@ export interface ChatMessage {
   created_at: string;
 }
 
+export interface AttachedFile {
+  name: string;
+  mimeType: string;
+  data: string; // base64
+}
+
 export interface SendMessageRequest {
   message: string;
+  file?: AttachedFile;
 }
 
 export interface ChatResponse {
@@ -189,6 +196,7 @@ export interface KnowledgeSource {
   source_type: string;
   path: string | null;
   chunk_count: number;
+  is_pinned: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -214,6 +222,49 @@ export interface IdeaInboxItem {
   status: 'new' | 'in_progress' | 'done' | 'rejected';
   run_id: number | null;
   created_at: string;
+}
+
+// ──────────────────────────────────────────────
+// Новостная фабрика
+// ──────────────────────────────────────────────
+
+export type NewsCategory = 'politics' | 'info' | 'tabloid';
+
+export type NewsVerificationStatus =
+  | 'confirmed'
+  | 'partially_confirmed'
+  | 'single_source'
+  | 'unverified';
+
+export interface NewsItem {
+  id: number;
+  package_id: number;
+  category: NewsCategory;
+  title: string;
+  summary: string;
+  why_important: string;
+  why_video: string;
+  links: string[];
+  terms: string[];
+  verification_status: NewsVerificationStatus;
+  virality_score: number;
+  risks: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewsPackage {
+  id: number;
+  project_id: number | null;
+  title: string;
+  target_date: string;
+  region: string;
+  languages: string[];
+  status: 'draft' | 'ready' | 'sent_to_run' | 'archived';
+  run_id: number | null;
+  items: NewsItem[];
+  created_at: string;
+  updated_at: string;
 }
 
 // ──────────────────────────────────────────────

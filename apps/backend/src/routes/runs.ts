@@ -4,6 +4,8 @@ import { pool } from '../db';
 import { planRun, executeRun, launchSoloTask } from '../agents/orchestrator';
 import { queue } from '../agents/queue';
 import { getActivityLog } from '../journal';
+import { notifyOwner, sendDocumentToOwner } from '../notify';
+import { buildRunDocx } from '../docx';
 import type { Run, Task } from '@swarm/shared';
 
 export const runsRouter = Router();
@@ -114,6 +116,7 @@ runsRouter.post('/:id/approve-result', async (req: Request, res: Response, next:
       [runId],
     );
 
+    let draftCount = 0;
     for (const task of publisherTasks) {
       const platform = detectPlatform(task.description);
       try {
@@ -126,10 +129,80 @@ runsRouter.post('/:id/approve-result', async (req: Request, res: Response, next:
           'INSERT INTO content_plan (draft_id, run_id, platform, title) VALUES ($1, $2, $3, $4)',
           [draft.id, runId, platform, `Публикация из прогона #${runId}`],
         );
+        draftCount++;
       } catch (err) {
         console.error('Ошибка создания черновика:', (err as Error).message);
       }
     }
+
+    // Уведомление и Word-документ со всеми результатами
+    const runGoal = rows[0].goal;
+    const notifyText = draftCount > 0
+      ? `📦 *Вы одобрили результат!*\n\n🎯 Цель: ${runGoal}\n\n📝 Создано черновиков: ${draftCount} шт.`
+      : `📦 *Вы одобрили результат!*\n\n🎯 Цель: ${runGoal}`;
+    notifyOwner(notifyText).catch(() => {});
+
+    // Генерируем Word-документ с полными результатами и отправляем в Telegram
+    const { rows: allTasks } = await pool.query<Task>(
+      'SELECT * FROM tasks WHERE run_id=$1 ORDER BY position ASC',
+      [runId],
+    );
+    const safeName = runGoal.replace(/[^\p{L}\p{N}\s]/gu, '').trim().substring(0, 40) || `прогон_${runId}`;
+    const filename = `Рой_${safeName}_${new Date().toISOString().slice(0, 10)}.docx`;
+    buildRunDocx(rows[0], allTasks)
+      .then(buf => sendDocumentToOwner(buf, filename, `📎 Полные результаты прогона #${runId}`))
+      .catch(err => console.error('Ошибка генерации docx:', (err as Error).message));
+  } catch (e) { next(e); }
+});
+
+// POST /api/runs/:id/send-to-telegram — отправить результаты текстовым файлом в Telegram
+runsRouter.post('/:id/send-to-telegram', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const runId = parseInt(req.params.id);
+    if (isNaN(runId)) { res.status(400).json({ error: 'Неверный ID' }); return; }
+
+    const { rows: runRows } = await pool.query<Run>('SELECT * FROM runs WHERE id=$1', [runId]);
+    if (!runRows.length) { res.status(404).json({ error: 'Прогон не найден' }); return; }
+
+    const run = runRows[0];
+    const { rows: tasks } = await pool.query<Task>(
+      'SELECT * FROM tasks WHERE run_id=$1 ORDER BY position ASC', [runId],
+    );
+
+    const lines: string[] = [
+      `Рой ИИ-агентов — Прогон #${runId}`,
+      `Цель: ${run.goal}`,
+      `Дата: ${new Date(run.created_at).toLocaleDateString('ru-RU')}`,
+      `Статус: ${run.status}`,
+    ];
+    if (run.total_cost_usd > 0) lines.push(`Расходы: $${run.total_cost_usd.toFixed(4)}`);
+    lines.push('');
+
+    if (run.summary) {
+      lines.push('═══ ИТОГОВАЯ СВОДКА ═══');
+      lines.push('');
+      lines.push(run.summary);
+      lines.push('');
+    }
+
+    const tasksWithResult = tasks.filter(t => t.result);
+    if (tasksWithResult.length > 0) {
+      lines.push('═══ РЕЗУЛЬТАТЫ ЗАДАЧ ═══');
+      for (const task of tasksWithResult) {
+        lines.push('');
+        lines.push(`─── ${task.agent_slug}: ${task.description.substring(0, 80)}${task.description.length > 80 ? '…' : ''} ───`);
+        lines.push('');
+        lines.push(task.result!);
+      }
+    }
+
+    const content = lines.join('\n');
+    const buffer = Buffer.from(content, 'utf-8');
+    const safeName = run.goal.replace(/[^\p{L}\p{N}\s]/gu, '').trim().substring(0, 40) || `прогон_${runId}`;
+    const filename = `Рой_${safeName}_${new Date().toISOString().slice(0, 10)}.txt`;
+
+    await sendDocumentToOwner(buffer, filename, `📄 Результаты прогона #${runId}`, 'text/plain');
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 

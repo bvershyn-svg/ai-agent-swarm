@@ -223,6 +223,39 @@ CREATE TABLE IF NOT EXISTS test_runs (
 );
 
 -- ──────────────────────────────────────────────
+-- Новостная фабрика
+-- ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS news_packages (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  title       VARCHAR(255) NOT NULL DEFAULT '',
+  target_date DATE         NOT NULL DEFAULT CURRENT_DATE,
+  region      VARCHAR(128) NOT NULL DEFAULT '',
+  languages   TEXT[]       NOT NULL DEFAULT '{}',
+  status      VARCHAR(32)  NOT NULL DEFAULT 'draft',
+  run_id      INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS news_items (
+  id                  SERIAL PRIMARY KEY,
+  package_id          INTEGER NOT NULL REFERENCES news_packages(id) ON DELETE CASCADE,
+  category            VARCHAR(32) NOT NULL DEFAULT 'politics',
+  title               VARCHAR(512) NOT NULL DEFAULT '',
+  summary             TEXT NOT NULL DEFAULT '',
+  why_important       TEXT NOT NULL DEFAULT '',
+  why_video           TEXT NOT NULL DEFAULT '',
+  links               TEXT[] NOT NULL DEFAULT '{}',
+  terms               TEXT[] NOT NULL DEFAULT '{}',
+  verification_status VARCHAR(32) NOT NULL DEFAULT 'unverified',
+  virality_score      INTEGER NOT NULL DEFAULT 5,
+  risks               TEXT NOT NULL DEFAULT '',
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ──────────────────────────────────────────────
 -- Индексы
 -- ──────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_tasks_run_id        ON tasks(run_id);
@@ -241,3 +274,10 @@ CREATE INDEX IF NOT EXISTS idx_chat_project        ON chat_messages(project_id);
 CREATE INDEX IF NOT EXISTS idx_ideas_project       ON idea_inbox(project_id);
 CREATE INDEX IF NOT EXISTS idx_test_scenarios_proj ON test_scenarios(project_id);
 CREATE INDEX IF NOT EXISTS idx_test_runs_scenario  ON test_runs(scenario_id);
+CREATE INDEX IF NOT EXISTS idx_news_packages_proj  ON news_packages(project_id);
+CREATE INDEX IF NOT EXISTS idx_news_items_pkg      ON news_items(package_id);
+
+-- ──────────────────────────────────────────────
+-- Постоянный контекст проекта
+-- ──────────────────────────────────────────────
+ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE;

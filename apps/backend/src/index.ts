@@ -10,6 +10,7 @@ import { projectsRouter } from './routes/projects';
 import { inboxRouter }    from './routes/inbox';
 import { knowledgeRouter } from './routes/knowledge';
 import { testsRouter }    from './routes/tests';
+import { newsRouter }     from './routes/news';
 import { queue }          from './agents/queue';
 import { executeRun }     from './agents/orchestrator';
 import { authMiddleware, authStatus } from './middleware/auth';
@@ -42,6 +43,7 @@ app.use('/api/content',  contentRouter);
 app.use('/api/inbox',    inboxRouter);
 app.use('/api/knowledge', knowledgeRouter);
 app.use('/api/tests',    testsRouter);
+app.use('/api/news',     newsRouter);
 
 // Глобальный обработчик ошибок
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

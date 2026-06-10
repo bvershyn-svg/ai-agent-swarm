@@ -3,6 +3,7 @@ import type {
   Run, Task, SwarmEvent, ActivityLog,
   Project, ProjectProfile, ContentDraft, ContentPlanItem,
   IdeaInboxItem, KnowledgeSource, TestScenario, TestRun,
+  NewsPackage, NewsItem,
 } from '@swarm/shared';
 
 const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
@@ -87,12 +88,15 @@ export async function getChatHistory(slug: string): Promise<ChatMessage[]> {
   return apiFetch(`/api/agents/${slug}/history`);
 }
 
-export async function sendMessage(slug: string, message: string): Promise<ChatResponse> {
-  const body: SendMessageRequest = { message };
+export async function sendMessage(
+  slug: string,
+  message: string,
+  file?: { name: string; mimeType: string; data: string },
+): Promise<ChatResponse> {
   return apiFetch(`/api/agents/${slug}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ message, file }),
   });
 }
 
@@ -156,6 +160,10 @@ export async function requestRevision(runId: number, comment: string): Promise<R
 
 export async function rerunRun(runId: number): Promise<Run> {
   return apiFetch(`/api/runs/${runId}/rerun`, { method: 'POST' });
+}
+
+export async function sendRunToTelegram(runId: number): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/runs/${runId}/send-to-telegram`, { method: 'POST' });
 }
 
 export async function updateTask(runId: number, taskId: number, data: { description?: string; agent_slug?: string }): Promise<Task> {
@@ -224,6 +232,10 @@ export async function publishDraftToTelegram(id: number): Promise<{ ok: boolean;
   return apiFetch(`/api/content/drafts/${id}/publish-telegram`, { method: 'POST' });
 }
 
+export async function sendAllDraftsToMe(): Promise<{ ok: boolean; sent: number; message: string }> {
+  return apiFetch('/api/content/drafts/send-to-me', { method: 'POST' });
+}
+
 export async function getContentPlan(): Promise<(ContentPlanItem & { draft_content?: string })[]> {
   return apiFetch('/api/content/plan');
 }
@@ -284,6 +296,73 @@ export async function getKnowledgeSources(): Promise<KnowledgeSource[]> {
 
 export async function deleteKnowledgeSource(id: number): Promise<void> {
   await apiFetch(`/api/knowledge/${id}`, { method: 'DELETE' });
+}
+
+// Загрузить текстовый материал в базу знаний или постоянный контекст
+export async function uploadKnowledge(
+  name: string,
+  text: string,
+  is_pinned: boolean,
+): Promise<{ source: KnowledgeSource; chunk_count: number }> {
+  return apiFetch('/api/knowledge/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, text, is_pinned }),
+  });
+}
+
+// Переключить тип материала: постоянный контекст ↔ база знаний
+export async function patchKnowledgeSource(
+  id: number,
+  is_pinned: boolean,
+): Promise<KnowledgeSource> {
+  return apiFetch(`/api/knowledge/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_pinned }),
+  });
+}
+
+// ── Тесты ─────────────────────────────────────────────────────────────────
+
+// ── Новостная фабрика ─────────────────────────────────────────────────────
+
+export async function getNewsPackages(): Promise<NewsPackage[]> {
+  return apiFetch('/api/news/packages');
+}
+
+export async function getNewsPackage(id: number): Promise<NewsPackage> {
+  return apiFetch(`/api/news/packages/${id}`);
+}
+
+export async function createNewsPackage(data: {
+  title?: string;
+  target_date?: string;
+  region?: string;
+  languages?: string[];
+  items?: Partial<NewsItem>[];
+}): Promise<NewsPackage> {
+  return apiFetch('/api/news/packages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateNewsPackage(id: number, data: Partial<NewsPackage> & { items?: Partial<NewsItem>[] }): Promise<NewsPackage> {
+  return apiFetch(`/api/news/packages/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteNewsPackage(id: number): Promise<void> {
+  await apiFetch(`/api/news/packages/${id}`, { method: 'DELETE' });
+}
+
+export async function createRunFromNewsPackage(id: number): Promise<Run> {
+  return apiFetch(`/api/news/packages/${id}/create-run`, { method: 'POST' });
 }
 
 // ── Тесты ─────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   getRunDetail, approvePlan, rejectPlan, approveResult, requestRevision,
-  rerunRun, updateTask, deleteTask,
+  rerunRun, updateTask, deleteTask, sendRunToTelegram,
 } from '@/lib/api';
 import type { RunDetail } from '@/lib/api';
 import type { RunStatus, TaskStatus, Task, ActivityLog } from '@swarm/shared';
@@ -96,6 +96,8 @@ export default function ProjectRunDetailPage() {
   const [editAgent, setEditAgent] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [rerunBusy, setRerunBusy] = useState(false);
+  const [sendTgBusy, setSendTgBusy] = useState(false);
+  const [sendTgDone, setSendTgDone] = useState(false);
 
   const loadDetail = useCallback(async () => {
     try {
@@ -165,6 +167,18 @@ export default function ProjectRunDetailPage() {
       router.push(`${base}/runs/${newRun.id}`);
     } catch (e) { setError((e as Error).message); }
     finally { setRerunBusy(false); }
+  }
+
+  async function handleSendToTelegram() {
+    if (sendTgBusy) return;
+    setSendTgBusy(true);
+    setSendTgDone(false);
+    try {
+      await sendRunToTelegram(runId);
+      setSendTgDone(true);
+      setTimeout(() => setSendTgDone(false), 4000);
+    } catch (e) { setError((e as Error).message); }
+    finally { setSendTgBusy(false); }
   }
 
   function startEditTask(task: Task) {
@@ -293,6 +307,13 @@ export default function ProjectRunDetailPage() {
                 {actionBusy ? '…' : '✓ Одобрить результат'}
               </button>
               <button
+                onClick={handleSendToTelegram}
+                disabled={sendTgBusy}
+                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                {sendTgBusy ? 'Отправляю…' : sendTgDone ? '✓ Отправлено!' : '📨 Отправить в Telegram'}
+              </button>
+              <button
                 onClick={() => setShowRevision(!showRevision)}
                 disabled={actionBusy}
                 className="bg-orange-700 hover:bg-orange-600 disabled:opacity-40 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -322,7 +343,7 @@ export default function ProjectRunDetailPage() {
         )}
 
         {['completed', 'failed'].includes(run.status) && (
-          <div className="mt-4">
+          <div className="mt-4 flex gap-3 flex-wrap">
             <button
               onClick={handleRerun}
               disabled={rerunBusy}
@@ -330,6 +351,15 @@ export default function ProjectRunDetailPage() {
             >
               {rerunBusy ? 'Запускаю…' : '🔁 Повторить прогон'}
             </button>
+            {run.status === 'completed' && (
+              <button
+                onClick={handleSendToTelegram}
+                disabled={sendTgBusy}
+                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                {sendTgBusy ? 'Отправляю…' : sendTgDone ? '✓ Отправлено!' : '📨 Отправить в Telegram'}
+              </button>
+            )}
           </div>
         )}
       </div>

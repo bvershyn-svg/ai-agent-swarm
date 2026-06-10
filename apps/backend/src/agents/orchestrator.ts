@@ -3,9 +3,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { pool } from '../db';
 import { env } from '../env';
 import { log, createEvent } from '../journal';
-import { notifyOwner } from '../notify';
+import { notifyOwner, notifyOwnerWithButtons } from '../notify';
 import { getProfile, buildProfileContext } from '../profile';
+import { getPinnedContext } from '../knowledge';
 import { PLAN_TOOL, REVIEW_TOOL } from './tools';
+import { FETCH_URL_TOOL, fetchUrlContent } from './web';
 import { queue } from './queue';
 import type { Run, Task } from '@swarm/shared';
 
@@ -150,6 +152,8 @@ export async function planRun(runId: number): Promise<void> {
   const run = await getRun(runId);
   const profile = await getProfile(run.project_id);
   const profileCtx = buildProfileContext(profile);
+  // Постоянный контекст проекта для Стратега
+  const pinnedCtx = run.project_id ? await getPinnedContext(run.project_id) : '';
 
   const { rows: agents } = await pool.query<{ slug: string; name: string; description: string }>(
     `SELECT slug, name, description FROM agents
@@ -166,7 +170,7 @@ export async function planRun(runId: number): Promise<void> {
         anthropic.messages.create({
           model: env.ANTHROPIC_MODEL,
           max_tokens: 2048,
-          system: PLAN_SYSTEM + profileCtx,
+          system: PLAN_SYSTEM + profileCtx + pinnedCtx,
           messages: [{ role: 'user', content: `Цель: "${run.goal}"\n\nДоступные агенты:\n${agentList}` }],
           tools: [PLAN_TOOL],
           tool_choice: { type: 'tool', name: 'create_plan' },
@@ -221,8 +225,15 @@ export async function planRun(runId: number): Promise<void> {
   });
 
   if (needsApproval) {
-    await notifyOwner(
-      `📋 *План готов*\n\nЦель: ${run.goal}\n\n${plan.rationale}\n\nЗадач: ${plan.tasks.length}\n\n_Зайди в дашборд и запусти прогон._`,
+    const taskList = plan.tasks.map((t, i) =>
+      `${i + 1}. [${AGENT_NAMES[t.agent_slug] ?? t.agent_slug}] ${t.description.substring(0, 80)}`
+    ).join('\n');
+    await notifyOwnerWithButtons(
+      `📋 *Стратег составил план*\n\n🎯 Цель: ${run.goal}\n\n📌 ${plan.rationale}\n\n*Задачи (${plan.tasks.length} шт.):*\n${taskList}`,
+      [[
+        { text: '✅ Одобрить и запустить', callback_data: `approve_plan_${runId}` },
+        { text: '❌ Отклонить', callback_data: `reject_plan_${runId}` },
+      ]],
     );
   } else {
     queue.schedule(runId);
@@ -272,6 +283,8 @@ async function processTask(task: Task, projectId?: number): Promise<void> {
   let currentDescription = task.description;
   const profile = await getProfile(projectId);
   const profileCtx = buildProfileContext(profile);
+  // Постоянный контекст проекта для агента-исполнителя
+  const pinnedCtx = projectId ? await getPinnedContext(projectId) : '';
 
   for (let round = 0; round <= MAX_REVISIONS; round++) {
     await updateTask(task.id, { status: 'running' });
@@ -280,7 +293,7 @@ async function processTask(task: Task, projectId?: number): Promise<void> {
 
     let execResult: { text: string; inputTokens: number; outputTokens: number; costUsd: number };
     try {
-      execResult = await callExecutor({ ...task, description: currentDescription }, round, profileCtx);
+      execResult = await callExecutor({ ...task, description: currentDescription }, round, profileCtx, pinnedCtx);
     } catch (err) {
       await updateTask(task.id, { status: 'completed', critic_verdict: `Ошибка: ${(err as Error).message}` });
       await log(task.run_id, task.id, task.agent_slug, 'task_error', (err as Error).message);
@@ -324,6 +337,7 @@ async function callExecutor(
   task: Task,
   round: number,
   profileCtx: string,
+  pinnedCtx: string,
 ): Promise<{ text: string; inputTokens: number; outputTokens: number; costUsd: number }> {
   const { rows: agentRows } = await pool.query<{ system_prompt: string; name: string }>(
     'SELECT system_prompt, name FROM agents WHERE slug=$1 AND is_active=TRUE',
@@ -349,6 +363,7 @@ async function callExecutor(
   const systemPrompt =
     agent.system_prompt +
     profileCtx +
+    pinnedCtx +
     '\n\nТы работаешь в режиме прогона роя. Выполни задачу полностью и верни развёрнутый результат.';
 
   const userContent =
@@ -356,26 +371,71 @@ async function callExecutor(
       ? `ЗАДАЧА (доработка раунд ${round}):\n${task.description}${context}`
       : `ЗАДАЧА:\n${task.description}${context}`;
 
-  const response = await callWithRetry(() =>
+  const MAX_WEB_ROUNDS = 5;
+  let apiMessages: Anthropic.MessageParam[] = [{ role: 'user', content: userContent }];
+
+  let response = await callWithRetry(() =>
     withTimeout(
       anthropic.messages.create({
         model: env.ANTHROPIC_MODEL,
         max_tokens: 2048,
         system: systemPrompt,
-        messages: [{ role: 'user', content: userContent }],
+        messages: apiMessages,
+        tools: [FETCH_URL_TOOL],
       }),
       agent.name,
     )
   );
 
+  let totalInputTokens = response.usage.input_tokens;
+  let totalOutputTokens = response.usage.output_tokens;
+
+  // Цикл обработки tool_use: агент может читать страницы до MAX_WEB_ROUNDS раз
+  for (let round = 0; round < MAX_WEB_ROUNDS && response.stop_reason === 'tool_use'; round++) {
+    const toolCalls = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+    );
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+      toolCalls.map(async (block) => {
+        const { url } = block.input as { url: string };
+        await log(task.run_id, task.id, task.agent_slug, 'fetch_url', `Читаю страницу: ${url}`);
+        const content = await fetchUrlContent(url);
+        return { type: 'tool_result' as const, tool_use_id: block.id, content };
+      }),
+    );
+
+    apiMessages = [
+      ...apiMessages,
+      { role: 'assistant' as const, content: response.content },
+      { role: 'user' as const, content: toolResults },
+    ];
+
+    response = await callWithRetry(() =>
+      withTimeout(
+        anthropic.messages.create({
+          model: env.ANTHROPIC_MODEL,
+          max_tokens: 2048,
+          system: systemPrompt,
+          messages: apiMessages,
+          tools: [FETCH_URL_TOOL],
+        }),
+        agent.name,
+      )
+    );
+
+    totalInputTokens += response.usage.input_tokens;
+    totalOutputTokens += response.usage.output_tokens;
+  }
+
   const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
   if (!textBlock) throw new Error(`Агент ${task.agent_slug} не вернул текст`);
 
-  const costUsd = calcCostUsd(response.usage.input_tokens, response.usage.output_tokens);
+  const costUsd = calcCostUsd(totalInputTokens, totalOutputTokens);
   return {
     text: textBlock.text,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
     costUsd,
   };
 }
@@ -502,7 +562,22 @@ async function summarizeAndFinish(runId: number, projectId?: number): Promise<vo
 
   await log(runId, null, 'strategist', 'summary_written', 'Сводка готова');
   await createEvent(runId, 'run_completed', { run_id: runId, task_count: tasks.length });
-  await notifyOwner(
-    `✅ *Прогон завершён*\n\nЦель: ${run.goal}\n\n${summary.substring(0, 500)}${summary.length > 500 ? '…' : ''}\n\n_Зайди в дашборд для проверки._`,
+
+  // Уведомление с кнопками одобрения
+  const summaryShort = summary.substring(0, 450) + (summary.length > 450 ? '…' : '');
+  await notifyOwnerWithButtons(
+    `✅ *Рой завершил работу — нужна ваша проверка*\n\n🎯 Цель: ${run.goal}\n\n📋 *Итоговая сводка:*\n${summaryShort}`,
+    [[
+      { text: '✅ Одобрить результат', callback_data: `approve_result_${runId}` },
+      { text: '🔄 На доработку', callback_data: `revise_result_${runId}` },
+    ]],
   );
+
+  // Полные результаты каждого агента — отдельными сообщениями
+  for (const task of tasks) {
+    if (!task.result) continue;
+    const agentName = AGENT_NAMES[task.agent_slug] ?? task.agent_slug;
+    const desc = task.description.substring(0, 60) + (task.description.length > 60 ? '…' : '');
+    await notifyOwner(`📄 *${agentName}:* _${desc}_\n\n${task.result}`);
+  }
 }

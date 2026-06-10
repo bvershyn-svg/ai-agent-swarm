@@ -1,7 +1,7 @@
 // Маршруты контент-фабрики: черновики и контент-план
 import { Router, Request, Response, NextFunction } from 'express';
 import { pool } from '../db';
-import { publishToChannel } from '../notify';
+import { publishToChannel, notifyOwner } from '../notify';
 import type { ContentDraft, ContentPlanItem } from '@swarm/shared';
 
 export const contentRouter = Router();
@@ -55,6 +55,36 @@ contentRouter.patch('/drafts/:id', async (req: Request, res: Response, next: Nex
       vals,
     );
     res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+// POST /api/content/drafts/send-to-me — отправить все черновики себе в Telegram
+contentRouter.post('/drafts/send-to-me', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { rows } = await pool.query<ContentDraft>(
+      `SELECT * FROM content_drafts
+       WHERE status = 'draft' AND ($1::int IS NULL OR project_id = $1)
+       ORDER BY created_at DESC`,
+      [req.projectId ?? null],
+    );
+
+    if (!rows.length) {
+      res.json({ ok: true, sent: 0, message: 'Нет черновиков для отправки' });
+      return;
+    }
+
+    const PLATFORM_LABEL: Record<string, string> = {
+      telegram: 'Telegram', instagram: 'Instagram', youtube: 'YouTube', general: 'Общее',
+    };
+
+    // Отправляем каждый черновик отдельным сообщением
+    for (const draft of rows) {
+      const platform = PLATFORM_LABEL[draft.platform] ?? draft.platform;
+      const header = `📄 *${draft.title}* (${platform})`;
+      await notifyOwner(`${header}\n\n${draft.content}`);
+    }
+
+    res.json({ ok: true, sent: rows.length, message: `Отправлено ${rows.length} материалов в Telegram` });
   } catch (e) { next(e); }
 });
 

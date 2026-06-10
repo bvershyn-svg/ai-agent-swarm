@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '@swarm/shared';
@@ -17,6 +17,9 @@ const AGENT_META: Record<string, { name: string; emoji: string }> = {
   programmer:   { name: 'Программист',   emoji: '💻' },
   critic:       { name: 'Критик',        emoji: '🔍' },
 };
+
+const ACCEPTED_FILES = '.pdf,.jpg,.jpeg,.png,.txt,.docx';
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 МБ
 
 function AgentMessage({ content }: { content: string }) {
   return (
@@ -64,31 +67,61 @@ export default function ProjectChatPage() {
   const [launchBudget, setLaunchBudget] = useState('');
   const [showLaunch, setShowLaunch] = useState(false);
   const [launching, setLaunching] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; mimeType: string; data: string } | null>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Загрузка истории и автофокус
   useEffect(() => {
     getChatHistory(agent)
       .then(setMessages)
       .catch(() => setError('Не удалось загрузить историю чата'));
+    textareaRef.current?.focus();
   }, [agent]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // Закрытие панели запуска по Escape
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && showLaunch) {
+        setShowLaunch(false);
+        setLaunchGoal('');
+        setLaunchBudget('');
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showLaunch]);
+
+  const copyMessage = useCallback((content: string, id: number) => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }, []);
+
   async function handleSend() {
     const text = input.trim();
-    if (!text || loading) return;
+    if ((!text && !attachedFile) || loading) return;
+    const fileToSend = attachedFile;
     setInput('');
+    setAttachedFile(null);
     setLoading(true);
     setError('');
     try {
-      const { history } = await sendMessage(agent, text);
+      const { history } = await sendMessage(agent, text, fileToSend ?? undefined);
       setMessages(history);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+      textareaRef.current?.focus();
     }
   }
 
@@ -105,15 +138,41 @@ export default function ProjectChatPage() {
     }
   }
 
+  // Enter без Shift ИЛИ Ctrl+Enter → отправить
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.ctrlKey || !e.shiftKey)) {
       e.preventDefault();
       handleSend();
     }
   }
 
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    if (file.size > MAX_FILE_SIZE) {
+      setError('Файл слишком большой. Максимум 10 МБ.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target?.result as string;
+      const base64 = dataUrl.split(',')[1];
+      setAttachedFile({ name: file.name, mimeType: file.type, data: base64 });
+      setError('');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  const charCount = input.length;
+  const charWarning = charCount > 3000;
+  const charOver = charCount > 4000;
+
   return (
     <div className="flex flex-col h-screen">
+      {/* Заголовок */}
       <div className="border-b border-gray-800 px-6 py-3 shrink-0 flex items-center gap-3">
         <span className="text-2xl">{meta.emoji}</span>
         <div className="flex-1">
@@ -130,9 +189,13 @@ export default function ProjectChatPage() {
         )}
       </div>
 
+      {/* Панель запуска прогона (только у стратега) */}
       {showLaunch && (
         <div className="border-b border-gray-800 bg-gray-900 px-6 py-4 shrink-0">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">Новый прогон</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-300">Новый прогон</h3>
+            <span className="text-xs text-gray-600">Escape — закрыть</span>
+          </div>
           <textarea
             rows={3}
             placeholder="Опишите цель прогона — что должен сделать рой агентов?"
@@ -170,6 +233,7 @@ export default function ProjectChatPage() {
         </div>
       )}
 
+      {/* Область сообщений */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.length === 0 && !loading && (
           <div className="text-gray-500 text-sm text-center mt-20">
@@ -188,14 +252,23 @@ export default function ProjectChatPage() {
               <span className="text-lg mr-2 mt-1 shrink-0">{meta.emoji}</span>
             )}
             <div
-              className={`max-w-[72%] rounded-2xl px-4 py-2.5 text-sm ${
+              className={`max-w-[72%] rounded-2xl px-4 py-2.5 text-sm relative group select-text ${
                 msg.role === 'user'
                   ? 'bg-blue-600 text-white rounded-br-sm'
                   : 'bg-gray-800 text-gray-100 rounded-bl-sm'
               }`}
             >
               {msg.role === 'assistant' ? (
-                <AgentMessage content={msg.content} />
+                <>
+                  <AgentMessage content={msg.content} />
+                  <button
+                    onClick={() => copyMessage(msg.content, msg.id)}
+                    className="mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1"
+                    title="Копировать ответ"
+                  >
+                    {copiedId === msg.id ? '✓ Скопировано' : '⎘ Копировать'}
+                  </button>
+                </>
               ) : (
                 <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
               )}
@@ -215,24 +288,70 @@ export default function ProjectChatPage() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Ошибка */}
       {error && (
         <div className="px-6 py-2 bg-red-900/40 text-red-300 text-sm shrink-0">⚠️ {error}</div>
       )}
 
+      {/* Прикреплённый файл */}
+      {attachedFile && (
+        <div className="px-6 py-2 shrink-0 flex items-center gap-2 bg-gray-900 border-t border-gray-800">
+          <span className="text-gray-400 text-sm">📎</span>
+          <span className="text-gray-300 text-sm flex-1 truncate">{attachedFile.name}</span>
+          <button
+            onClick={() => setAttachedFile(null)}
+            className="text-gray-500 hover:text-gray-300 text-lg leading-none transition-colors"
+            title="Удалить файл"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Поле ввода */}
       <div className="border-t border-gray-800 px-6 py-4 shrink-0">
         <div className="flex gap-3 items-end">
-          <textarea
-            className="flex-1 bg-gray-800 text-gray-100 rounded-xl px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder-gray-500"
-            rows={2}
-            placeholder={`Напишите ${meta.name}у… (Enter — отправить, Shift+Enter — новая строка)`}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={loading}
+          {/* Скрытый input для файлов */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_FILES}
+            onChange={handleFileSelect}
+            className="hidden"
           />
+
+          {/* Кнопка прикрепить файл */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            className="text-gray-500 hover:text-gray-300 disabled:opacity-40 transition-colors pb-3 shrink-0"
+            title="Прикрепить файл (PDF, JPG, PNG, TXT, DOCX)"
+          >
+            📎
+          </button>
+
+          <div className="flex-1">
+            <textarea
+              ref={textareaRef}
+              className="w-full bg-gray-800 text-gray-100 rounded-xl px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder-gray-500"
+              rows={2}
+              placeholder={`Напишите ${meta.name}у… (Enter — отправить, Shift+Enter — новая строка)`}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+            />
+            {/* Счётчик символов */}
+            {charCount > 0 && (
+              <div className={`text-right text-xs mt-1 ${charOver ? 'text-red-400' : charWarning ? 'text-yellow-500' : 'text-gray-600'}`}>
+                {charCount.toLocaleString('ru')} симв.{charOver ? ' — слишком длинное' : ''}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim()}
+            disabled={loading || (!input.trim() && !attachedFile)}
             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl text-sm font-medium transition-colors shrink-0"
           >
             Отправить

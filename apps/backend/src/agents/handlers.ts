@@ -1,11 +1,12 @@
 import { chat } from './conversational';
-import type { Agent, ChatMessage } from '@swarm/shared';
+import type { Agent, ChatMessage, AttachedFile } from '@swarm/shared';
 
-// Тип обработчика: агент + сообщение + projectId → ответ с историей
+// Тип обработчика: агент + сообщение + projectId + файл → ответ с историей
 export type AgentHandler = (
   agent: Agent,
   message: string,
   projectId?: number,
+  file?: AttachedFile,
 ) => Promise<{ reply: string; history: ChatMessage[] }>;
 
 // Реестр специальных обработчиков по slug-у.

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { pool } from '../db';
 import { getHandler } from '../agents/handlers';
-import type { Agent, SendMessageRequest } from '@swarm/shared';
+import type { Agent, AttachedFile } from '@swarm/shared';
 
 export const agentsRouter = Router();
 
@@ -39,8 +39,11 @@ agentsRouter.get('/:slug/history', async (req: Request, res: Response, next: Nex
 // POST /api/agents/:slug/chat — отправить сообщение (с контекстом проекта)
 agentsRouter.post('/:slug/chat', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { message } = req.body as SendMessageRequest;
-    if (!message?.trim()) { res.status(400).json({ error: 'Сообщение не может быть пустым' }); return; }
+    const { message, file } = req.body as { message: string; file?: AttachedFile };
+    if (!message?.trim() && !file) {
+      res.status(400).json({ error: 'Сообщение или файл не могут быть пустыми' });
+      return;
+    }
 
     const { rows: agents } = await pool.query<Agent>(
       'SELECT * FROM agents WHERE slug = $1 AND is_active = TRUE',
@@ -49,7 +52,7 @@ agentsRouter.post('/:slug/chat', async (req: Request, res: Response, next: NextF
     if (!agents.length) { res.status(404).json({ error: 'Агент не найден' }); return; }
 
     const handle = getHandler(agents[0].slug);
-    const result = await handle(agents[0], message.trim(), req.projectId ?? undefined);
+    const result = await handle(agents[0], message?.trim() ?? '', req.projectId ?? undefined, file);
     res.json(result);
   } catch (e) { next(e); }
 });

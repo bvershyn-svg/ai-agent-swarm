@@ -3,7 +3,9 @@ import { env } from './env';
 import { pool } from './db';
 import { chat as chatWithAgent } from './agents/conversational';
 import { launchSoloTask } from './agents/orchestrator';
-import type { Agent } from '@swarm/shared';
+import { sendDocumentToOwner } from './notify';
+import { buildRunDocx } from './docx';
+import type { Agent, Run, Task } from '@swarm/shared';
 
 const API = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}`;
 
@@ -65,19 +67,22 @@ async function editMessage(chatId: number, messageId: number, text: string): Pro
 
 async function cmdHelp(chatId: number) {
   const text = `*🤖 Рой ИИ-агентов*\n\n` +
-    `*Управление*\n` +
-    `/project — список проектов\n` +
-    `/project <slug> — переключить проект\n` +
-    `/runs — последние прогоны\n\n` +
+    `*Одобрения*\n` +
+    `/review — прогоны, требующие решения (с кнопками)\n\n` +
+    `*Прогоны*\n` +
+    `/runs — последние прогоны\n` +
+    `/result <номер> — все результаты прогона\n\n` +
     `*Идеи*\n` +
-    `/idea <текст> — добавить идею в инбокс\n` +
-    `/inbox — показать инбокс с кнопками\n\n` +
+    `/idea <текст> — добавить идею\n` +
+    `/inbox — инбокс с кнопками запуска\n\n` +
     `*Задачи*\n` +
     `/task <агент> <описание> — прямая задача агенту\n\n` +
-    `*Чат*\n` +
-    `/agent <slug> — начать чат с агентом\n` +
-    `После /agent просто пишите сообщения\n\n` +
-    `*Агенты:* strategist, scriptwriter, reelsmaker, designer, publisher, programmer, critic\n\n` +
+    `*Чат с агентом*\n` +
+    `/agent <slug> — начать чат с агентом\n\n` +
+    `*Проекты*\n` +
+    `/project — список проектов\n` +
+    `/project <slug> — переключить проект\n\n` +
+    `*Агенты:* strategist, scriptwriter, reelsmaker, montager, designer, publisher, programmer, critic\n\n` +
     `*Текущий проект:* ${(getSession(chatId)).projectSlug}`;
   await send(chatId, text);
 }
@@ -161,7 +166,7 @@ async function cmdRuns(chatId: number) {
 
   const STATUS_EMOJI: Record<string, string> = {
     planning: '⏳', awaiting_approval: '📋', running: '⚡',
-    awaiting_review: '✅', completed: '🎉', failed: '❌',
+    awaiting_review: '🔍', completed: '✅', failed: '❌',
   };
 
   const lines = rows.map((r: { id: number; goal: string; status: string; created_at: string }) => {
@@ -171,7 +176,97 @@ async function cmdRuns(chatId: number) {
     return `${emoji} #${r.id} — ${goal}\n   _${date}_`;
   }).join('\n\n');
 
-  await send(chatId, `*Последние прогоны (${session.projectSlug}):*\n\n${lines}`);
+  await send(chatId, `*Последние прогоны (${session.projectSlug}):*\n\n${lines}\n\nПолучить результаты: /result <номер>`);
+}
+
+// Выводит полные результаты всех агентов по прогону
+async function cmdResult(chatId: number, arg: string) {
+  const session = getSession(chatId);
+  await resolveProject(session);
+
+  const runId = parseInt(arg);
+  if (isNaN(runId)) {
+    await send(chatId, '❌ Укажите номер прогона. Пример: /result 42');
+    return;
+  }
+
+  const { rows: runRows } = await pool.query<{ id: number; goal: string; status: string; summary: string | null }>(
+    'SELECT id, goal, status, summary FROM runs WHERE id=$1 AND ($2::int IS NULL OR project_id=$2)',
+    [runId, session.projectId],
+  );
+  if (!runRows.length) {
+    await send(chatId, `❌ Прогон #${runId} не найден.`);
+    return;
+  }
+
+  const run = runRows[0];
+  const { rows: tasks } = await pool.query<{ agent_slug: string; description: string; result: string | null }>(
+    'SELECT agent_slug, description, result FROM tasks WHERE run_id=$1 ORDER BY position ASC',
+    [runId],
+  );
+
+  const AGENT_NAMES: Record<string, string> = {
+    strategist: 'Стратег', scriptwriter: 'Сценарист', reelsmaker: 'Рилсмейкер',
+    montager: 'Монтажёр', designer: 'Дизайнер', publisher: 'Публикатор',
+    programmer: 'Программист', critic: 'Критик',
+  };
+
+  await send(chatId, `📦 *Прогон #${runId}*\n🎯 ${run.goal}\n\nСейчас отправлю результаты каждого агента:`);
+
+  for (const task of tasks) {
+    if (!task.result) continue;
+    const name = AGENT_NAMES[task.agent_slug] ?? task.agent_slug;
+    const desc = task.description.substring(0, 60) + (task.description.length > 60 ? '…' : '');
+    await send(chatId, `📄 *${name}:* _${desc}_\n\n${task.result}`);
+  }
+
+  if (run.summary) {
+    await send(chatId, `📋 *Итоговая сводка:*\n\n${run.summary}`);
+  }
+}
+
+// Показывает прогоны, требующие действия, с кнопками
+async function cmdReview(chatId: number) {
+  const session = getSession(chatId);
+  await resolveProject(session);
+
+  const { rows } = await pool.query<{ id: number; goal: string; status: string }>(
+    `SELECT id, goal, status FROM runs
+     WHERE ($1::int IS NULL OR project_id=$1)
+       AND status IN ('awaiting_approval','awaiting_review')
+     ORDER BY created_at DESC LIMIT 10`,
+    [session.projectId],
+  );
+
+  if (!rows.length) {
+    await send(chatId, '✅ Нет прогонов, требующих вашего внимания.');
+    return;
+  }
+
+  await send(chatId, `*Требуют вашего решения (${rows.length}):*\n`);
+
+  for (const run of rows) {
+    const isApproval = run.status === 'awaiting_approval';
+    const label = isApproval ? '📋 Ожидает одобрения плана' : '🔍 Ожидает проверки результатов';
+    const goal = run.goal.substring(0, 120) + (run.goal.length > 120 ? '…' : '');
+
+    await tgFetch('sendMessage', {
+      chat_id: chatId,
+      text: `${label}\n#${run.id} — ${goal}`,
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: isApproval
+          ? [[
+              { text: '✅ Одобрить план', callback_data: `approve_plan_${run.id}` },
+              { text: '❌ Отклонить', callback_data: `reject_plan_${run.id}` },
+            ]]
+          : [[
+              { text: '✅ Одобрить результат', callback_data: `approve_result_${run.id}` },
+              { text: '📄 Получить результаты', callback_data: `get_result_${run.id}` },
+            ]],
+      },
+    });
+  }
 }
 
 async function cmdTask(chatId: number, rest: string) {
@@ -310,6 +405,122 @@ async function handleCallbackQuery(callbackQuery: {
     return;
   }
 
+  // approve_plan_<id>
+  if (data.startsWith('approve_plan_')) {
+    const runId = parseInt(data.replace('approve_plan_', ''));
+    if (isNaN(runId)) { await answerCallback(callbackQuery.id, '❌ Неверный ID'); return; }
+    const { rows } = await pool.query<{ id: number }>(
+      "UPDATE runs SET status='running', updated_at=NOW() WHERE id=$1 AND status='awaiting_approval' RETURNING id",
+      [runId],
+    );
+    if (!rows.length) { await answerCallback(callbackQuery.id, '❌ Уже запущен или не найден'); return; }
+    const { queue } = await import('./agents/queue');
+    queue.schedule(runId);
+    await answerCallback(callbackQuery.id, '🚀 Запущено!');
+    if (messageId) await editMessage(chatId, messageId, `✅ *План одобрен — рой работает!*\n\nПрогон #${runId}`);
+    return;
+  }
+
+  // reject_plan_<id>
+  if (data.startsWith('reject_plan_')) {
+    const runId = parseInt(data.replace('reject_plan_', ''));
+    if (isNaN(runId)) { await answerCallback(callbackQuery.id, '❌ Неверный ID'); return; }
+    await pool.query("DELETE FROM runs WHERE id=$1 AND status='awaiting_approval'", [runId]);
+    await answerCallback(callbackQuery.id, '🗑 Отклонено');
+    if (messageId) await editMessage(chatId, messageId, `❌ *План отклонён*\n\nПрогон #${runId} удалён.`);
+    return;
+  }
+
+  // approve_result_<id>
+  if (data.startsWith('approve_result_')) {
+    const runId = parseInt(data.replace('approve_result_', ''));
+    if (isNaN(runId)) { await answerCallback(callbackQuery.id, '❌ Неверный ID'); return; }
+    const { rows } = await pool.query<{ goal: string }>(
+      "UPDATE runs SET status='completed', updated_at=NOW() WHERE id=$1 AND status='awaiting_review' RETURNING goal",
+      [runId],
+    );
+    if (!rows.length) { await answerCallback(callbackQuery.id, '❌ Уже одобрен или не найден'); return; }
+    // Создаём черновики из задач publisher
+    const { rows: pubTasks } = await pool.query<{ id: number; description: string; result: string }>(
+      "SELECT id, description, result FROM tasks WHERE run_id=$1 AND agent_slug='publisher' AND result IS NOT NULL",
+      [runId],
+    );
+    const detectPlatform = (text: string): string => {
+      const l = text.toLowerCase();
+      if (l.includes('youtube') || l.includes('ютуб')) return 'youtube';
+      if (l.includes('telegram') || l.includes('телеграм')) return 'telegram';
+      if (l.includes('instagram') || l.includes('инстаграм') || l.includes('reels')) return 'instagram';
+      return 'general';
+    };
+    let draftCount = 0;
+    for (const task of pubTasks) {
+      const platform = detectPlatform(task.description);
+      try {
+        const { rows: [draft] } = await pool.query<{ id: number }>(
+          "INSERT INTO content_drafts (task_id, run_id, platform, title, content) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+          [task.id, runId, platform, `Черновик из прогона #${runId}`, task.result],
+        );
+        await pool.query('INSERT INTO content_plan (draft_id,run_id,platform,title) VALUES ($1,$2,$3,$4)',
+          [draft.id, runId, platform, `Публикация из прогона #${runId}`]);
+        draftCount++;
+      } catch { /* пропускаем дубли */ }
+    }
+    await answerCallback(callbackQuery.id, '✅ Одобрено!');
+    const draftMsg = draftCount > 0 ? `\n📝 Создано черновиков: ${draftCount} шт.` : '';
+    if (messageId) await editMessage(chatId, messageId, `🎉 *Результат одобрен!*\n\nПрогон #${runId}${draftMsg}\n📎 Генерирую Word-документ…`);
+
+    // Генерируем и отправляем Word-документ
+    const { rows: runForDoc } = await pool.query<Run>('SELECT * FROM runs WHERE id=$1', [runId]);
+    const { rows: tasksForDoc } = await pool.query<Task>(
+      'SELECT * FROM tasks WHERE run_id=$1 ORDER BY position ASC',
+      [runId],
+    );
+    if (runForDoc.length) {
+      const run = runForDoc[0];
+      const safeName = run.goal.replace(/[^\p{L}\p{N}\s]/gu, '').trim().substring(0, 40) || `прогон_${runId}`;
+      const filename = `Рой_${safeName}_${new Date().toISOString().slice(0, 10)}.docx`;
+      buildRunDocx(run, tasksForDoc)
+        .then(buf => sendDocumentToOwner(buf, filename, `📎 Полные результаты прогона #${runId}`))
+        .catch(err => console.error('Ошибка генерации docx:', (err as Error).message));
+    }
+    return;
+  }
+
+  // get_result_<id> — выгрузить все результаты задач
+  if (data.startsWith('get_result_')) {
+    const runId = parseInt(data.replace('get_result_', ''));
+    if (isNaN(runId)) { await answerCallback(callbackQuery.id, '❌ Неверный ID'); return; }
+    await answerCallback(callbackQuery.id, '📄 Отправляю результаты…');
+    const { rows: tasks } = await pool.query<{ agent_slug: string; description: string; result: string | null }>(
+      'SELECT agent_slug, description, result FROM tasks WHERE run_id=$1 AND result IS NOT NULL ORDER BY position ASC',
+      [runId],
+    );
+    const NAMES: Record<string, string> = {
+      strategist: 'Стратег', scriptwriter: 'Сценарист', reelsmaker: 'Рилсмейкер',
+      montager: 'Монтажёр', designer: 'Дизайнер', publisher: 'Публикатор',
+      programmer: 'Программист', critic: 'Критик',
+    };
+    for (const task of tasks) {
+      if (!task.result) continue;
+      const name = NAMES[task.agent_slug] ?? task.agent_slug;
+      const desc = task.description.substring(0, 60) + (task.description.length > 60 ? '…' : '');
+      await send(chatId, `📄 *${name}:* _${desc}_\n\n${task.result}`);
+    }
+    return;
+  }
+
+  // revise_result_<id> — запрос на доработку
+  if (data.startsWith('revise_result_')) {
+    const runId = parseInt(data.replace('revise_result_', ''));
+    if (isNaN(runId)) { await answerCallback(callbackQuery.id, '❌ Неверный ID'); return; }
+    await answerCallback(callbackQuery.id, 'Напишите комментарий для доработки');
+    const session = getSession(chatId);
+    session.waitingFor = 'revise_comment' as Session['waitingFor'];
+    (session as unknown as Record<string, unknown>).pendingReviseRunId = runId;
+    await send(chatId, `🔄 Напишите комментарий для доработки прогона #${runId} (или /cancel для отмены):`);
+    return;
+  }
+
   // idea_launch_<id>
   if (data.startsWith('idea_launch_')) {
     const ideaId = parseInt(data.replace('idea_launch_', ''));
@@ -439,6 +650,8 @@ async function processUpdate(update: {
       case 'help':     return cmdHelp(chatId);
       case 'project':  return cmdProject(chatId, arg);
       case 'runs':     return cmdRuns(chatId);
+      case 'result':   return cmdResult(chatId, arg);
+      case 'review':   return cmdReview(chatId);
       case 'task':     return cmdTask(chatId, arg);
       case 'idea':     return cmdIdea(chatId, arg);
       case 'inbox':    return cmdInbox(chatId);
