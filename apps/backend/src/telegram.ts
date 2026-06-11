@@ -82,7 +82,7 @@ async function cmdHelp(chatId: number) {
     `*Проекты*\n` +
     `/project — список проектов\n` +
     `/project <slug> — переключить проект\n\n` +
-    `*Агенты:* strategist, scriptwriter, reelsmaker, montager, designer, publisher, programmer, critic\n\n` +
+    `*Агенты:* strategist, scriptwriter, producer, visual, factchecker, critic\n\n` +
     `*Текущий проект:* ${(getSession(chatId)).projectSlug}`;
   await send(chatId, text);
 }
@@ -206,9 +206,8 @@ async function cmdResult(chatId: number, arg: string) {
   );
 
   const AGENT_NAMES: Record<string, string> = {
-    strategist: 'Стратег', scriptwriter: 'Сценарист', reelsmaker: 'Рилсмейкер',
-    montager: 'Монтажёр', designer: 'Дизайнер', publisher: 'Публикатор',
-    programmer: 'Программист', critic: 'Критик',
+    strategist: 'Стратег', scriptwriter: 'Сценарист', producer: 'Продюсер',
+    visual: 'Визуал', factchecker: 'Фактчекер', critic: 'Критик',
   };
 
   await send(chatId, `📦 *Прогон #${runId}*\n🎯 ${run.goal}\n\nСейчас отправлю результаты каждого агента:`);
@@ -277,11 +276,11 @@ async function cmdTask(chatId: number, rest: string) {
   const agentSlug = parts[0]?.toLowerCase();
   const description = parts.slice(1).join(' ');
 
-  const validAgents = ['strategist', 'scriptwriter', 'reelsmaker', 'montager', 'designer', 'publisher', 'programmer', 'critic'];
+  const validAgents = ['strategist', 'scriptwriter', 'producer', 'visual', 'factchecker', 'critic'];
 
   if (!agentSlug || !validAgents.includes(agentSlug)) {
     await send(chatId,
-      `❌ Укажите агента. Пример:\n/task scriptwriter Напиши пост о нашем продукте\n\n` +
+      `❌ Укажите агента. Пример:\n/task scriptwriter Напиши сценарий о событии\n\n` +
       `Агенты: ${validAgents.join(', ')}`
     );
     return;
@@ -348,7 +347,7 @@ async function addIdea(chatId: number, session: Session, text: string) {
 async function cmdAgent(chatId: number, agentSlug: string) {
   const session = getSession(chatId);
 
-  const validAgents = ['strategist', 'scriptwriter', 'reelsmaker', 'montager', 'designer', 'publisher', 'programmer', 'critic'];
+  const validAgents = ['strategist', 'scriptwriter', 'producer', 'visual', 'factchecker', 'critic'];
   if (!agentSlug || !validAgents.includes(agentSlug.toLowerCase())) {
     await send(chatId,
       `❌ Укажите агента. Например: /agent strategist\n\nАгенты: ${validAgents.join(', ')}`
@@ -440,34 +439,8 @@ async function handleCallbackQuery(callbackQuery: {
       [runId],
     );
     if (!rows.length) { await answerCallback(callbackQuery.id, '❌ Уже одобрен или не найден'); return; }
-    // Создаём черновики из задач publisher
-    const { rows: pubTasks } = await pool.query<{ id: number; description: string; result: string }>(
-      "SELECT id, description, result FROM tasks WHERE run_id=$1 AND agent_slug='publisher' AND result IS NOT NULL",
-      [runId],
-    );
-    const detectPlatform = (text: string): string => {
-      const l = text.toLowerCase();
-      if (l.includes('youtube') || l.includes('ютуб')) return 'youtube';
-      if (l.includes('telegram') || l.includes('телеграм')) return 'telegram';
-      if (l.includes('instagram') || l.includes('инстаграм') || l.includes('reels')) return 'instagram';
-      return 'general';
-    };
-    let draftCount = 0;
-    for (const task of pubTasks) {
-      const platform = detectPlatform(task.description);
-      try {
-        const { rows: [draft] } = await pool.query<{ id: number }>(
-          "INSERT INTO content_drafts (task_id, run_id, platform, title, content) VALUES ($1,$2,$3,$4,$5) RETURNING id",
-          [task.id, runId, platform, `Черновик из прогона #${runId}`, task.result],
-        );
-        await pool.query('INSERT INTO content_plan (draft_id,run_id,platform,title) VALUES ($1,$2,$3,$4)',
-          [draft.id, runId, platform, `Публикация из прогона #${runId}`]);
-        draftCount++;
-      } catch { /* пропускаем дубли */ }
-    }
     await answerCallback(callbackQuery.id, '✅ Одобрено!');
-    const draftMsg = draftCount > 0 ? `\n📝 Создано черновиков: ${draftCount} шт.` : '';
-    if (messageId) await editMessage(chatId, messageId, `🎉 *Результат одобрен!*\n\nПрогон #${runId}${draftMsg}\n📎 Генерирую Word-документ…`);
+    if (messageId) await editMessage(chatId, messageId, `🎉 *Результат одобрен!*\n\nПрогон #${runId}\n📎 Генерирую Word-документ…`);
 
     // Генерируем и отправляем Word-документ
     const { rows: runForDoc } = await pool.query<Run>('SELECT * FROM runs WHERE id=$1', [runId]);
@@ -496,9 +469,8 @@ async function handleCallbackQuery(callbackQuery: {
       [runId],
     );
     const NAMES: Record<string, string> = {
-      strategist: 'Стратег', scriptwriter: 'Сценарист', reelsmaker: 'Рилсмейкер',
-      montager: 'Монтажёр', designer: 'Дизайнер', publisher: 'Публикатор',
-      programmer: 'Программист', critic: 'Критик',
+      strategist: 'Стратег', scriptwriter: 'Сценарист', producer: 'Продюсер',
+      visual: 'Визуал', factchecker: 'Фактчекер', critic: 'Критик',
     };
     for (const task of tasks) {
       if (!task.result) continue;

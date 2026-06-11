@@ -10,14 +10,6 @@ import type { Run, Task } from '@swarm/shared';
 
 export const runsRouter = Router();
 
-// Определяет платформу по описанию задачи
-function detectPlatform(text: string): string {
-  const l = text.toLowerCase();
-  if (l.includes('youtube') || l.includes('ютуб')) return 'youtube';
-  if (l.includes('telegram') || l.includes('телеграм') || l.includes(' тг ')) return 'telegram';
-  if (l.includes('instagram') || l.includes('инстаграм') || l.includes('reels') || l.includes('рилс')) return 'instagram';
-  return 'general';
-}
 
 // POST /api/runs — создать новый прогон
 runsRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -110,36 +102,9 @@ runsRouter.post('/:id/approve-result', async (req: Request, res: Response, next:
 
     res.json({ ok: true });
 
-    // Авто-создание черновиков из задач-публикаций (после ответа)
-    const { rows: publisherTasks } = await pool.query<Task>(
-      "SELECT * FROM tasks WHERE run_id=$1 AND agent_slug='publisher' AND result IS NOT NULL",
-      [runId],
-    );
-
-    let draftCount = 0;
-    for (const task of publisherTasks) {
-      const platform = detectPlatform(task.description);
-      try {
-        const { rows: [draft] } = await pool.query<{ id: number }>(
-          `INSERT INTO content_drafts (task_id, run_id, platform, title, content)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-          [task.id, runId, platform, `Черновик из прогона #${runId}`, task.result],
-        );
-        await pool.query(
-          'INSERT INTO content_plan (draft_id, run_id, platform, title) VALUES ($1, $2, $3, $4)',
-          [draft.id, runId, platform, `Публикация из прогона #${runId}`],
-        );
-        draftCount++;
-      } catch (err) {
-        console.error('Ошибка создания черновика:', (err as Error).message);
-      }
-    }
-
     // Уведомление и Word-документ со всеми результатами
     const runGoal = rows[0].goal;
-    const notifyText = draftCount > 0
-      ? `📦 *Вы одобрили результат!*\n\n🎯 Цель: ${runGoal}\n\n📝 Создано черновиков: ${draftCount} шт.`
-      : `📦 *Вы одобрили результат!*\n\n🎯 Цель: ${runGoal}`;
+    const notifyText = `📦 *Вы одобрили результат!*\n\n🎯 Цель: ${runGoal}`;
     notifyOwner(notifyText).catch(() => {});
 
     // Генерируем Word-документ с полными результатами и отправляем в Telegram

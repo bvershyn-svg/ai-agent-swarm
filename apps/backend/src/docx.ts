@@ -5,11 +5,9 @@ import type { Run, Task } from '@swarm/shared';
 const AGENT_NAMES: Record<string, string> = {
   strategist:   'Стратег',
   scriptwriter: 'Сценарист',
-  reelsmaker:   'Рилсмейкер',
-  montager:     'Монтажёр',
-  designer:     'Дизайнер',
-  publisher:    'Публикатор',
-  programmer:   'Программист',
+  producer:     'Продюсер',
+  visual:       'Визуал',
+  factchecker:  'Фактчекер',
   critic:       'Критик',
 };
 

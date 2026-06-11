@@ -16,7 +16,7 @@ export const PLAN_TOOL: Anthropic.Tool = {
           properties: {
             agent_slug: {
               type: 'string',
-              description: 'Идентификатор агента-исполнителя (scriptwriter, designer и т.д.)',
+              description: 'Идентификатор агента-исполнителя: scriptwriter, producer, visual, factchecker (не strategist и не critic)',
             },
             description: {
               type: 'string',
