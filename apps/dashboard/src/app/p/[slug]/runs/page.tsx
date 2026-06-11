@@ -7,13 +7,12 @@ import type { RunListItem } from '@/lib/api';
 import type { RunStatus } from '@swarm/shared';
 
 const AGENTS = [
-  { slug: 'scriptwriter', name: 'Сценарист',   emoji: '🎬' },
-  { slug: 'reelsmaker',   name: 'Рилсмейкер',  emoji: '📱' },
-  { slug: 'montager',     name: 'Монтажёр',     emoji: '✂️' },
-  { slug: 'designer',     name: 'Дизайнер',     emoji: '🎨' },
-  { slug: 'publisher',    name: 'Публикатор',   emoji: '📅' },
-  { slug: 'programmer',   name: 'Программист',  emoji: '💻' },
-  { slug: 'strategist',   name: 'Стратег',      emoji: '🧠' },
+  { slug: 'strategist',   name: 'Стратег',    emoji: '🧠' },
+  { slug: 'scriptwriter', name: 'Сценарист',  emoji: '✍️' },
+  { slug: 'producer',     name: 'Продюсер',   emoji: '🎬' },
+  { slug: 'visual',       name: 'Визуал',     emoji: '🖼' },
+  { slug: 'factchecker',  name: 'Фактчекер',  emoji: '🔍' },
+  { slug: 'critic',       name: 'Критик',     emoji: '🎯' },
 ];
 
 const STATUS_LABEL: Record<RunStatus, string> = {

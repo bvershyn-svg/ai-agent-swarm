@@ -191,7 +191,7 @@ export default function CalendarPage() {
         <div className="text-center text-gray-500 mt-20">
           <p className="text-4xl mb-3">📭</p>
           <p>Контент-план пуст.</p>
-          <p className="text-sm mt-1">Добавьте записи вручную или одобрите прогон с задачами Публикатора.</p>
+          <p className="text-sm mt-1">Добавьте записи вручную через кнопку выше.</p>
         </div>
       )}
 

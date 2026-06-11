@@ -8,14 +8,12 @@ import type { ChatMessage } from '@swarm/shared';
 import { getChatHistory, sendMessage, createRun } from '@/lib/api';
 
 const AGENT_META: Record<string, { name: string; emoji: string }> = {
-  strategist:   { name: 'Стратег',       emoji: '🧠' },
-  scriptwriter: { name: 'Сценарист',     emoji: '🎬' },
-  reelsmaker:   { name: 'Рилсмейкер',    emoji: '📱' },
-  montager:     { name: 'Монтажёр',      emoji: '✂️' },
-  designer:     { name: 'Дизайнер',      emoji: '🎨' },
-  publisher:    { name: 'Публикатор',    emoji: '📅' },
-  programmer:   { name: 'Программист',   emoji: '💻' },
-  critic:       { name: 'Критик',        emoji: '🔍' },
+  strategist:   { name: 'Стратег',     emoji: '🧠' },
+  scriptwriter: { name: 'Сценарист',   emoji: '✍️' },
+  producer:     { name: 'Продюсер',    emoji: '🎬' },
+  visual:       { name: 'Визуал',      emoji: '🖼' },
+  factchecker:  { name: 'Фактчекер',   emoji: '🔍' },
+  critic:       { name: 'Критик',      emoji: '🎯' },
 };
 
 const ACCEPTED_FILES = '.pdf,.jpg,.jpeg,.png,.txt,.docx';

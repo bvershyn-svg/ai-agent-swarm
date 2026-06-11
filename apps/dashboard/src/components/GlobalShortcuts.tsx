@@ -39,13 +39,11 @@ export function GlobalShortcuts() {
       { label: 'Тесты', path: `/p/${projectSlug}/tests`, emoji: '🧪', category: 'Проект' },
       { label: 'Профиль проекта', path: `/p/${projectSlug}/profile`, emoji: '⚙️', category: 'Проект' },
       { label: 'Стратег', path: `/p/${projectSlug}/chats/strategist`, emoji: '🧠', category: 'Агенты' },
-      { label: 'Сценарист', path: `/p/${projectSlug}/chats/scriptwriter`, emoji: '🎬', category: 'Агенты' },
-      { label: 'Рилсмейкер', path: `/p/${projectSlug}/chats/reelsmaker`, emoji: '📱', category: 'Агенты' },
-      { label: 'Монтажёр', path: `/p/${projectSlug}/chats/montager`, emoji: '✂️', category: 'Агенты' },
-      { label: 'Дизайнер', path: `/p/${projectSlug}/chats/designer`, emoji: '🎨', category: 'Агенты' },
-      { label: 'Публикатор', path: `/p/${projectSlug}/chats/publisher`, emoji: '📅', category: 'Агенты' },
-      { label: 'Программист', path: `/p/${projectSlug}/chats/programmer`, emoji: '💻', category: 'Агенты' },
-      { label: 'Критик', path: `/p/${projectSlug}/chats/critic`, emoji: '🔍', category: 'Агенты' },
+      { label: 'Сценарист', path: `/p/${projectSlug}/chats/scriptwriter`, emoji: '✍️', category: 'Агенты' },
+      { label: 'Продюсер', path: `/p/${projectSlug}/chats/producer`, emoji: '🎬', category: 'Агенты' },
+      { label: 'Визуал', path: `/p/${projectSlug}/chats/visual`, emoji: '🖼', category: 'Агенты' },
+      { label: 'Фактчекер', path: `/p/${projectSlug}/chats/factchecker`, emoji: '🔍', category: 'Агенты' },
+      { label: 'Критик', path: `/p/${projectSlug}/chats/critic`, emoji: '🎯', category: 'Агенты' },
     ] : []),
   ];
 

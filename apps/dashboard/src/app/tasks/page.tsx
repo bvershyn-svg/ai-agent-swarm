@@ -101,7 +101,7 @@ export default function TasksPage() {
         <div className="text-center text-gray-500 mt-20">
           <p className="text-4xl mb-3">📭</p>
           <p>Черновиков пока нет.</p>
-          <p className="text-sm mt-1">Они появятся после одобрения прогонов с задачами Публикатора.</p>
+          <p className="text-sm mt-1">Добавьте черновики вручную через кнопку выше.</p>
         </div>
       )}
 

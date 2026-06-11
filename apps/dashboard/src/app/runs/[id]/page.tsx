@@ -53,24 +53,20 @@ const TASK_STATUS_COLOR: Record<TaskStatus, string> = {
 
 const AGENT_EMOJI: Record<string, string> = {
   strategist:   '🧠',
-  scriptwriter: '🎬',
-  reelsmaker:   '📱',
-  montager:     '✂️',
-  designer:     '🎨',
-  publisher:    '📅',
-  programmer:   '💻',
-  critic:       '🔍',
+  scriptwriter: '✍️',
+  producer:     '🎬',
+  visual:       '🖼',
+  factchecker:  '🔍',
+  critic:       '🎯',
   system:       '⚙️',
 };
 
 const AGENT_NAME: Record<string, string> = {
   strategist:   'Стратег',
   scriptwriter: 'Сценарист',
-  reelsmaker:   'Рилсмейкер',
-  montager:     'Монтажёр',
-  designer:     'Дизайнер',
-  publisher:    'Публикатор',
-  programmer:   'Программист',
+  producer:     'Продюсер',
+  visual:       'Визуал',
+  factchecker:  'Фактчекер',
   critic:       'Критик',
   system:       'Система',
 };

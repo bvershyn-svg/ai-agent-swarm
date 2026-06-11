@@ -6,14 +6,12 @@ import { useState, useEffect } from 'react';
 import { getEventCount } from '@/lib/api';
 
 const AGENTS = [
-  { slug: 'strategist',   name: 'Стратег',       emoji: '🧠' },
-  { slug: 'scriptwriter', name: 'Сценарист',      emoji: '🎬' },
-  { slug: 'reelsmaker',   name: 'Рилсмейкер',     emoji: '📱' },
-  { slug: 'montager',     name: 'Монтажёр',        emoji: '✂️' },
-  { slug: 'designer',     name: 'Дизайнер',        emoji: '🎨' },
-  { slug: 'publisher',    name: 'Публикатор',      emoji: '📅' },
-  { slug: 'programmer',   name: 'Программист',     emoji: '💻' },
-  { slug: 'critic',       name: 'Критик',          emoji: '🔍' },
+  { slug: 'strategist',   name: 'Стратег',     emoji: '🧠' },
+  { slug: 'scriptwriter', name: 'Сценарист',   emoji: '✍️' },
+  { slug: 'producer',     name: 'Продюсер',    emoji: '🎬' },
+  { slug: 'visual',       name: 'Визуал',      emoji: '🖼' },
+  { slug: 'factchecker',  name: 'Фактчекер',   emoji: '🔍' },
+  { slug: 'critic',       name: 'Критик',      emoji: '🎯' },
 ];
 
 export function Sidebar() {

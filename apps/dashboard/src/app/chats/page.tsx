@@ -7,13 +7,11 @@ import { getAgents } from '@/lib/api';
 
 const EMOJIS: Record<string, string> = {
   strategist:   '🧠',
-  scriptwriter: '🎬',
-  reelsmaker:   '📱',
-  montager:     '✂️',
-  designer:     '🎨',
-  publisher:    '📅',
-  programmer:   '💻',
-  critic:       '🔍',
+  scriptwriter: '✍️',
+  producer:     '🎬',
+  visual:       '🖼',
+  factchecker:  '🔍',
+  critic:       '🎯',
 };
 
 export default function ChatsPage() {

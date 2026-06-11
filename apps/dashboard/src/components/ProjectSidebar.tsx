@@ -6,14 +6,12 @@ import { useState, useEffect } from 'react';
 import { getEventCount } from '@/lib/api';
 
 const AGENTS = [
-  { slug: 'strategist',   name: 'Стратег',     emoji: '🧠', hint: 'Строит план' },
-  { slug: 'scriptwriter', name: 'Сценарист',    emoji: '🎬', hint: 'Пишет тексты' },
-  { slug: 'reelsmaker',   name: 'Рилсмейкер',  emoji: '📱', hint: 'Концепции видео' },
-  { slug: 'montager',     name: 'Монтажёр',     emoji: '✂️', hint: 'Монтажные планы' },
-  { slug: 'designer',     name: 'Дизайнер',     emoji: '🎨', hint: 'Визуальные идеи' },
-  { slug: 'publisher',    name: 'Публикатор',   emoji: '📅', hint: 'Хэштеги и тайминг' },
-  { slug: 'programmer',   name: 'Программист',  emoji: '💻', hint: 'Помощь с системой' },
-  { slug: 'critic',       name: 'Критик',       emoji: '🔍', hint: 'Проверка результатов' },
+  { slug: 'strategist',   name: 'Стратег',    emoji: '🧠', hint: 'Угол подачи и план' },
+  { slug: 'scriptwriter', name: 'Сценарист',  emoji: '✍️', hint: 'Сценарий для Reels/Shorts' },
+  { slug: 'producer',     name: 'Продюсер',   emoji: '🎬', hint: 'Структура и темп' },
+  { slug: 'visual',       name: 'Визуал',     emoji: '🖼', hint: 'Покадровый план' },
+  { slug: 'factchecker',  name: 'Фактчекер',  emoji: '🔍', hint: 'Проверка источников' },
+  { slug: 'critic',       name: 'Критик',     emoji: '🎯', hint: 'Финальная оценка' },
 ];
 
 const MAIN_NAV = [
