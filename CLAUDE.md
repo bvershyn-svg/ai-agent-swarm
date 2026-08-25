@@ -31,7 +31,7 @@ npm run typecheck
 # База данных
 "D:\pgsql\bin\pg_ctl.exe" -D "D:\pgsql\data" -l "D:\pgsql\data\logfile.log" start
 npm run db:migrate   # применить migrate.sql (идемпотентно, запускать при изменениях схемы)
-npm run db:seed      # заполнить 8 агентов (если таблица agents пустая)
+npm run db:seed      # заполнить 6 агентов (если таблица agents пустая)
 npm run db:backup    # резервная копия в backups/
 
 # API без curl (Git Bash на Windows ломает пути /api/...)
@@ -66,7 +66,7 @@ npm run tests:batch  # прогнать тесты
 
 Суперпользователь: `postgres/postgres`. Рабочий пользователь: `swarm/swarm`.  
 `db/migrate.sql` — идемпотентная, можно запускать многократно.  
-`db/seed.sql` — 8 агентов со своими `system_prompt`; личность агента живёт в БД, не в коде.
+`db/seed.sql` — 6 агентов со своими `system_prompt`; личность агента живёт в БД, не в коде.
 
 Ключевые связи:
 - `runs` → `tasks` (CASCADE)
@@ -162,6 +162,5 @@ SWARM_PASSWORD=                  # опционально
 - **TXT-файлы в чате**: frontend отправляет base64, backend декодирует в UTF-8 и использует `PlainTextSource` с `type: 'text'` (не `'base64'`).
 - **Стоимость**: `MODEL_PRICING` в `orchestrator.ts` — вручную обновлять при добавлении новых моделей.
 - **Критик**: запускается **внутри** `processTask()` для каждой задачи синхронно, до 2 ревизий (`MAX_REVISIONS = 2`).
-- **Агент-программист** не имеет специального обработчика — использует стандартный `chat()` из `conversational.ts`.
 - **Планирование**: `needs_approval` автоматически `true` если задач > 3 (`SMALL_RUN_THRESHOLD = 3`).
 - **Черновики**: создаются автоматически при `approve-result` из задач агента `publisher`.
