@@ -4,3 +4,8 @@ node_modules
 dist
 backups
 *.log
+
+# AI-контекст дампы и build-артефакты
+*-code.txt
+project-code.txt
+*.tsbuildinfo
